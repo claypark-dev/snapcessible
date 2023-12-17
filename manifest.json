@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Snapcessible",
+  "version": "1.0",
+  "permissions": ["activeTab", "storage", "scripting"],
+  "action": {
+    "default_popup": "app/index.html",
+    "default_icon": "128.png"
+  }
+}
