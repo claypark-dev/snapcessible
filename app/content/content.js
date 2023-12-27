@@ -1,110 +1,102 @@
 // Add the overlay to the page
 let overlay;
+let startX, startY, rect, offsetX, offsetY;
+let uniqueIdCounter = 0;
 
-
-let startX, startY, rect, offsetX, offSetY;
-
-// Function to show the overlay and initiate capturing
 function initiateCapture() {
     overlay = document.createElement('div');
-    overlay.style.display = 'block';
-    // Initially hide the overlay
-    overlay.style.position = 'fixed';
-    overlay.style.top = '0';
-    overlay.style.left = '0';
-    overlay.style.width = '100%';
-    overlay.style.height = '100%';
-    overlay.style.zIndex = '9999';
-    overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+    overlay.style = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 9999; background-color: rgba(0, 0, 0, 0.5);';
     document.body.appendChild(overlay);
-    overlay.addEventListener('mousedown', (event) => {
-        startX = event.pageX;
-        startY = event.pageY;
-        rect = document.createElement('div');
-        rect.style.position = 'absolute';
-        rect.style.border = '2px solid blue';
-        rect.style.backgroundColor = 'rgba(0, 0, 255, 0.3)';
-        rect.style.left = `${startX}px`;
-        rect.style.top = `${startY}px`;
-        overlay.appendChild(rect);
-    });
-    
-    overlay.addEventListener('mousemove', (event) => {
-        if (!rect) return;
-        const width = event.pageX - startX;
-        const height = event.pageY - startY;
-        rect.style.width = `${width}px`;
-        rect.style.height = `${height}px`;
-    });
-    
-    overlay.addEventListener('mouseup', () => {
-        if (rect) {
-            offsetX = rect.offsetWidth;
-            offsetY = rect.offsetHeight;
-            rect.remove();
-            rect = null;
-            overlay.remove(); // To completely remove from the DOM
-            
-            // Send message to background script
-            chrome.runtime.sendMessage({action: "captureTab"}, (response) => {
-                // Use response.dataUrl to create and manipulate a canvas
-                const img = new Image();
-                img.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    canvas.width = offsetX;
-                    canvas.height = offsetY;
-                    ctx.drawImage(img, -startX, -startY);
-                    // Further processing of the canvas, like displaying or downloading
-                    const croppedDataUrl = canvas.toDataURL('image/png');
-                    // Automatic download
-                    const downloadLink = document.createElement('a');
-                    downloadLink.href = croppedDataUrl;
-                    downloadLink.download = 'screenshot.png';
-                    document.body.appendChild(downloadLink);
-                    downloadLink.click();
-                    document.body.removeChild(downloadLink);
-                };
-                img.src = response.dataUrl;
-            });
-            // Start of reading dom for screenshot
-            let htmlString = captureElementsAndStyles(startX, startY, offsetX, offsetY);
-            const blob = new Blob([htmlString], { type: 'text/html' });
-            const downloadLink = document.createElement('a');
-            downloadLink.href = URL.createObjectURL(blob);
-            downloadLink.download = 'captured-elements.html';
-            document.body.appendChild(downloadLink);
-            downloadLink.click();
-            document.body.removeChild(downloadLink);
-        } else {
-            rect = null;
-        }
-    });
+
+    overlay.addEventListener('mousedown', handleMouseDown);
+    overlay.addEventListener('mousemove', handleMouseMove);
+    overlay.addEventListener('mouseup', handleMouseUp);
 }
 
+function handleMouseDown(event) {
+    startX = event.pageX - window.scrollX;
+    startY = event.pageY - window.scrollY;
+    rect = document.createElement('div');
+    rect.style = 'position: absolute; border: 2px solid blue; background-color: rgba(0, 0, 255, 0.3); left: ' + startX + 'px; top: ' + startY + 'px;';
+    overlay.appendChild(rect);
+}
+
+function handleMouseMove(event) {
+    if (!rect) return;
+    const width = event.pageX - window.scrollX - startX;
+    const height = event.pageY - window.scrollY - startY;
+    rect.style.width = width + 'px';
+    rect.style.height = height + 'px';
+}
+
+function handleMouseUp() {
+    if (rect) {
+        const zoomLevel = window.devicePixelRatio;
+        const adjustedX = startX;
+        const adjustedY = startY;
+        const adjustedWidth = rect.offsetWidth * zoomLevel;
+        const adjustedHeight = rect.offsetHeight * zoomLevel;
+        const rectWidth = rect.offsetWidth;
+        const rectHeight = rect.offsetHeight;
+        rect.remove();
+        overlay.remove();
+
+        chrome.runtime.sendMessage({ action: "captureTab" }, async (response) => {
+            const img = new Image();
+            img.onload = async () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = adjustedWidth;
+                canvas.height = adjustedHeight;
+                ctx.drawImage(img, -adjustedX * zoomLevel, -adjustedY * zoomLevel);
+
+                const croppedDataUrl = canvas.toDataURL('image/png');
+                downloadFile(croppedDataUrl, 'screenshot.png');
+
+                let htmlString = captureElementsAndStyles(adjustedX, adjustedY, rectWidth, rectHeight);
+                const blob = new Blob([htmlString], { type: 'text/html' });
+                downloadFile(URL.createObjectURL(blob), 'captured-elements.html');
+            };
+            img.src = response.dataUrl;
+        });
+    }
+    rect = null;
+}
+
+
 function captureElementsAndStyles(x, y, width, height) {
-    // Create a container div for the captured area
+    const zoomLevel = window.devicePixelRatio;
+    // x /= .5;
+    // y /= .5;
+    width /= .5;
+    height /= .5;
     const capturedAreaHtml = document.createElement('div');
     capturedAreaHtml.style.cssText = `width: ${width}px; height: ${height}px; overflow: hidden;`;
+    let styleRules = '';
 
-    // Function to capture an individual element
     function captureElement(el) {
-        if (el.dataset.captured) return ''; // Skip already captured elements
-        el.dataset.captured = 'true'; // Mark the element as captured
-
+        if (el.dataset.captured) return '';
+        el.dataset.captured = 'true';
+    
+        const uniqueClass = `capturedClass-${uniqueIdCounter++}`;
+        const existingClasses = el.className ? `${el.className} ` : '';
+        const combinedClasses = `${existingClasses}${uniqueClass}`;
+        el.dataset.uniqueClass = uniqueClass;
+    
         const computedStyle = window.getComputedStyle(el);
         const styleString = Array.from(computedStyle).map(prop => `${prop}: ${computedStyle.getPropertyValue(prop)}`).join('; ');
-
-        let htmlString = `<${el.tagName.toLowerCase()} style="${styleString}"`;
-
-        // Copy all attributes of the element
+        styleRules += `.${uniqueClass} { ${styleString} }\n`;
+    
+        let htmlString = `<${el.tagName.toLowerCase()} class="${combinedClasses}"`;
+    
         Array.from(el.attributes).forEach(attr => {
-            htmlString += ` ${attr.name}="${attr.value}"`;
+            if (attr.name !== 'style' && attr.name !== 'class') {
+                htmlString += ` ${attr.name}="${attr.value}"`;
+            }
         });
-
-        htmlString += '>'; // Close the opening tag
-
-        // Recursively capture child nodes
+    
+        htmlString += '>';
+    
         Array.from(el.childNodes).forEach(child => {
             if (child.nodeType === Node.ELEMENT_NODE) {
                 htmlString += captureElement(child);
@@ -112,23 +104,34 @@ function captureElementsAndStyles(x, y, width, height) {
                 htmlString += child.textContent;
             }
         });
-
-        htmlString += `</${el.tagName.toLowerCase()}>`; // Close the element tag
+    
+        htmlString += `</${el.tagName.toLowerCase()}>`;
         return htmlString;
     }
+    
 
-    // Iterate over all elements and capture those within the specified area
     document.querySelectorAll('*').forEach(el => {
         const rect = el.getBoundingClientRect();
         if (rect.top >= y && rect.left >= x && rect.bottom <= y + height && rect.right <= x + width && !el.closest('[data-captured="true"]')) {
             capturedAreaHtml.innerHTML += captureElement(el);
         }
     });
+    const styleBlock = document.createElement('style');
+    styleBlock.innerHTML = styleRules;
+    capturedAreaHtml.prepend(styleBlock);
 
-    return capturedAreaHtml.outerHTML; // Return the HTML of the captured area
+    return capturedAreaHtml.outerHTML;
 }
 
-// Listen for messages from the popup
+function downloadFile(dataUrl, filename) {
+    const downloadLink = document.createElement('a');
+    downloadLink.href = dataUrl;
+    downloadLink.download = filename;
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "capture") {
         initiateCapture();
