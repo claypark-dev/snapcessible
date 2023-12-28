@@ -66,10 +66,8 @@ function handleMouseUp() {
 
 function captureElementsAndStyles(x, y, width, height) {
     const zoomLevel = window.devicePixelRatio;
-    // x /= .5;
-    // y /= .5;
-    width /= .5;
-    height /= .5;
+    width /= zoomLevel;
+    height /= zoomLevel;
     const capturedAreaHtml = document.createElement('div');
     capturedAreaHtml.style.cssText = `width: ${width}px; height: ${height}px; overflow: hidden;`;
     let styleRules = '';
